@@ -103,11 +103,11 @@ export default function ReportesPage() {
 
     switch (tipoReporte) {
       case 'ventas':
-        headers = ['Fecha', 'Total (₡)', 'Total (USD)', 'Productos']
+        headers = ['Fecha', 'Total (Colones)', 'Total (USD)', 'Productos']
         tableData = datos.map(v => [
           formatDateShort(v.fecha),
-          formatCurrency(v.total_colones, 'CRC'),
-          formatCurrency(v.total_usd, 'USD'),
+          `CRC ${v.total_colones.toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          `USD ${v.total_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
           v.ventas_detalle?.length || 0
         ])
         break
@@ -116,7 +116,7 @@ export default function ReportesPage() {
         headers = ['Fecha', 'Total (USD)', 'Productos', 'Notas']
         tableData = datos.map(c => [
           formatDateShort(c.fecha),
-          formatCurrency(c.total_usd, 'USD'),
+          `USD ${c.total_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
           c.compras_detalle?.length || 0,
           c.notas || '-'
         ])
@@ -126,9 +126,9 @@ export default function ReportesPage() {
         headers = ['Fecha', 'Tipo', 'Categoría', 'Monto (USD)']
         tableData = datos.map(g => [
           formatDateShort(g.fecha),
-          g.tipo === 'unico' ? 'Único' : 'Utilitario',
+          g.tipo === 'unico' ? 'Unico' : 'Utilitario',
           g.categoria,
-          formatCurrency(g.monto_usd, 'USD')
+          `USD ${g.monto_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
         ])
         break
 
@@ -138,8 +138,8 @@ export default function ReportesPage() {
           i.productos?.nombre,
           i.productos?.marca,
           `${i.cantidad_disponible.toFixed(2)} ${i.productos?.unidad_medida}`,
-          formatCurrency(i.costo_promedio_usd, 'USD'),
-          formatCurrency(i.cantidad_disponible * i.costo_promedio_usd, 'USD')
+          `USD ${i.costo_promedio_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          `USD ${(i.cantidad_disponible * i.costo_promedio_usd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
         ])
         break
     }
