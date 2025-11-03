@@ -32,6 +32,9 @@ export default function VentasPage() {
   
   // Estado para nueva presentación
   const [productos, setProductos] = useState<Producto[]>([])
+  const [gastosUtilitarios, setGastosUtilitarios] = useState(0)
+  const [inventarioTotalLitros, setInventarioTotalLitros] = useState(0)
+  const [costoPorLitroOverhead, setCostoPorLitroOverhead] = useState(0)
   const [nuevaPresentacion, setNuevaPresentacion] = useState({
     producto_id: '',
     nombre: '',
@@ -39,7 +42,8 @@ export default function VentasPage() {
     unidad: 'litros',
     costo_envase: 0,
     precio_venta_colones: 0,
-    margen_objetivo: 30 // Margen objetivo por defecto
+    margen_objetivo: 30, // Margen objetivo por defecto
+    incluir_gastos_utilitarios: true // Por defecto incluir gastos
   })
   const [margenPreview, setMargenPreview] = useState({ margenPorcentaje: 0, margenColones: 0, margenDolares: 0 })
 
@@ -98,6 +102,52 @@ export default function VentasPage() {
 
       if (productosData) setProductos(productosData)
 
+      // Cargar gastos utilitarios activos (mensuales)
+      const { data: gastosData } = await supabase
+        .from('gastos')
+        .select('monto_usd')
+        .eq('tipo', 'utilitario')
+        .eq('activo', true)
+
+      const totalGastosUtilitarios = gastosData?.reduce((sum, g) => sum + g.monto_usd, 0) || 0
+      setGastosUtilitarios(totalGastosUtilitarios)
+
+      // Calcular inventario total en litros (para prorrateo)
+      const { data: inventarioData } = await supabase
+        .from('inventario')
+        .select(`
+          cantidad_disponible,
+          productos!inner (
+            unidad_medida
+          )
+        `)
+
+      let totalLitros = 0
+      inventarioData?.forEach((inv: any) => {
+        const cantidad = inv.cantidad_disponible
+        const unidad = inv.productos.unidad_medida
+        
+        // Convertir todo a litros para el cálculo
+        if (unidad === 'litros') {
+          totalLitros += cantidad
+        } else if (unidad === 'mililitros') {
+          totalLitros += cantidad / 1000
+        }
+        // Solo consideramos productos líquidos para el prorrateo
+      })
+
+      setInventarioTotalLitros(totalLitros)
+      
+      // Calcular costo por litro de overhead
+      const costoOverhead = totalLitros > 0 ? totalGastosUtilitarios / totalLitros : 0
+      setCostoPorLitroOverhead(costoOverhead)
+
+      console.log('💡 Cálculo de overhead:', {
+        gastosUtilitarios: totalGastosUtilitarios,
+        inventarioTotalLitros: totalLitros,
+        costoPorLitro: costoOverhead
+      })
+
       // Cargar ventas recientes
       const { data: ventasData } = await supabase
         .from('ventas')
@@ -122,6 +172,23 @@ export default function VentasPage() {
     }
   }
 
+  // Función para convertir unidades a la unidad base del producto
+  const convertirUnidades = (cantidad: number, unidadOrigen: string, unidadDestino: string): number => {
+    // Si las unidades son iguales, no hay conversión
+    if (unidadOrigen === unidadDestino) return cantidad
+    
+    // Conversiones de volumen
+    if (unidadOrigen === 'mililitros' && unidadDestino === 'litros') return cantidad / 1000
+    if (unidadOrigen === 'litros' && unidadDestino === 'mililitros') return cantidad * 1000
+    
+    // Conversiones de peso
+    if (unidadOrigen === 'gramos' && unidadDestino === 'kilogramos') return cantidad / 1000
+    if (unidadOrigen === 'kilogramos' && unidadDestino === 'gramos') return cantidad * 1000
+    
+    // Si no hay conversión definida, devolver cantidad original
+    return cantidad
+  }
+
   const calcularMargenPreview = async () => {
     const producto = productos.find((p: Producto) => p.id === nuevaPresentacion.producto_id)
     if (!producto) return
@@ -132,7 +199,14 @@ export default function VentasPage() {
       .eq('producto_id', nuevaPresentacion.producto_id)
       .single()
 
-    const costoUnitarioUSD = (inventarioData?.costo_promedio_usd || 0) * nuevaPresentacion.cantidad
+    // Convertir la cantidad de la presentación a la unidad base del producto
+    const cantidadEnUnidadBase = convertirUnidades(
+      nuevaPresentacion.cantidad,
+      nuevaPresentacion.unidad,
+      producto.unidad_medida
+    )
+    
+    const costoUnitarioUSD = (inventarioData?.costo_promedio_usd || 0) * cantidadEnUnidadBase
     const margen = calcularMargen(
       costoUnitarioUSD,
       nuevaPresentacion.precio_venta_colones,
@@ -171,8 +245,39 @@ export default function VentasPage() {
       return
     }
     
-    const costoProductoTotal = costoProductoUSD * nuevaPresentacion.cantidad
-    const costoTotalUSD = costoProductoTotal + (nuevaPresentacion.costo_envase || 0)
+    // Convertir la cantidad de la presentación a la unidad base del producto
+    const cantidadEnUnidadBase = convertirUnidades(
+      nuevaPresentacion.cantidad,
+      nuevaPresentacion.unidad,
+      producto.unidad_medida
+    )
+    
+    // Calcular costo de gastos utilitarios si está habilitado
+    let costoGastosUtilitarios = 0
+    if (nuevaPresentacion.incluir_gastos_utilitarios && costoPorLitroOverhead > 0) {
+      // Convertir la cantidad a litros para el cálculo de overhead
+      const cantidadEnLitros = convertirUnidades(
+        nuevaPresentacion.cantidad,
+        nuevaPresentacion.unidad,
+        'litros'
+      )
+      costoGastosUtilitarios = costoPorLitroOverhead * cantidadEnLitros
+    }
+    
+    console.log('🔢 Conversión de unidades:', {
+      cantidadPresentacion: nuevaPresentacion.cantidad,
+      unidadPresentacion: nuevaPresentacion.unidad,
+      unidadProducto: producto.unidad_medida,
+      cantidadConvertida: cantidadEnUnidadBase,
+      costoUnitario: costoProductoUSD,
+      costoProducto: costoProductoUSD * cantidadEnUnidadBase,
+      costoEnvase: nuevaPresentacion.costo_envase || 0,
+      costoGastosUtilitarios: costoGastosUtilitarios,
+      costoTotal: (costoProductoUSD * cantidadEnUnidadBase) + (nuevaPresentacion.costo_envase || 0) + costoGastosUtilitarios
+    })
+    
+    const costoProductoTotal = costoProductoUSD * cantidadEnUnidadBase
+    const costoTotalUSD = costoProductoTotal + (nuevaPresentacion.costo_envase || 0) + costoGastosUtilitarios
     
     // Fórmula: Precio = Costo Total * (1 + Margen/100)
     const precioVentaUSD = costoTotalUSD * (1 + nuevaPresentacion.margen_objetivo / 100)
@@ -229,7 +334,14 @@ export default function VentasPage() {
         
         // Calcular costo UNITARIO (por cada presentación) en USD
         const costoProductoUSD = inventarioData?.costo_promedio_usd || 0
-        const cantidadPresentacion = presentacion.cantidad || 1
+        
+        // Convertir la cantidad de la presentación a la unidad base del producto
+        const cantidadEnUnidadBase = convertirUnidades(
+          presentacion.cantidad,
+          presentacion.unidad,
+          presentacion.productos.unidad_medida
+        )
+        
         const costoEnvaseUSD = presentacion.costo_envase || 0
         
         // VALIDACIÓN: Verificar si el producto tiene costo en inventario
@@ -244,7 +356,7 @@ export default function VentasPage() {
         }
         
         // Costo de UNA presentación
-        const costoUnitarioUSD = (costoProductoUSD * cantidadPresentacion) + costoEnvaseUSD
+        const costoUnitarioUSD = (costoProductoUSD * cantidadEnUnidadBase) + costoEnvaseUSD
         
         nuevosProductos[index].costo_unitario_usd = costoUnitarioUSD
         
@@ -261,8 +373,11 @@ export default function VentasPage() {
         // Debug: mostrar cálculos en consola
         console.log('🔍 Cálculo de margen:', {
           presentacion: presentacion.nombre,
-          costoProductoPorLitro: costoProductoUSD,
-          litrosPorPresentacion: cantidadPresentacion,
+          cantidad: presentacion.cantidad,
+          unidadPresentacion: presentacion.unidad,
+          unidadProducto: presentacion.productos.unidad_medida,
+          cantidadConvertida: cantidadEnUnidadBase,
+          costoProductoPorUnidadBase: costoProductoUSD,
           costoEnvaseUSD,
           costoUnitarioUSD: costoUnitarioUSD.toFixed(4),
           precioVentaColones: presentacion.precio_venta_colones,
@@ -385,7 +500,8 @@ export default function VentasPage() {
         unidad: 'litros',
         costo_envase: 0,
         precio_venta_colones: 0,
-        margen_objetivo: 30
+        margen_objetivo: 30,
+        incluir_gastos_utilitarios: true
       })
       loadData()
     } catch (error: any) {
@@ -831,6 +947,33 @@ export default function VentasPage() {
                     min="0"
                     step="0.01"
                   />
+                </div>
+
+                {/* Checkbox para incluir gastos utilitarios */}
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={nuevaPresentacion.incluir_gastos_utilitarios}
+                      onChange={(e) => setNuevaPresentacion({ ...nuevaPresentacion, incluir_gastos_utilitarios: e.target.checked })}
+                      className="checkbox mt-1"
+                    />
+                    <div>
+                      <div className="font-semibold text-yellow-900">Incluir Gastos Utilitarios</div>
+                      <div className="text-sm text-yellow-700 mt-1">
+                        {gastosUtilitarios > 0 ? (
+                          <>
+                            Se prorrateará <span className="font-bold">{formatCurrency(gastosUtilitarios, 'USD')}</span> de gastos 
+                            (luz, agua, etc.) entre <span className="font-bold">{inventarioTotalLitros.toFixed(2)}L</span> de inventario total.
+                            <br />
+                            <span className="text-xs">Costo adicional: ~{formatCurrency(costoPorLitroOverhead, 'USD')}/litro</span>
+                          </>
+                        ) : (
+                          <span className="text-yellow-600">No hay gastos utilitarios registrados</span>
+                        )}
+                      </div>
+                    </div>
+                  </label>
                 </div>
 
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">

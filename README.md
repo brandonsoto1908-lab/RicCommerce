@@ -1,53 +1,57 @@
 # RicCommerce - Sistema de Gestión de Productos de Limpieza
 
-Sistema web completo para la gestión integral de productos de limpieza, desarrollado con Next.js, Supabase y desplegado en Vercel.
+Sistema web completo para la gestión integral de productos de limpieza, desarrollado con Next.js 14, TypeScript, Supabase y Tailwind CSS.
 
 ## 🚀 Características Principales
 
 ### 1. **Módulo de Compras**
-- Registro de productos adquiridos con múltiples marcas
-- Captura de nombre, marca, cantidad (gramos/litros) y precio en USD
+- Registro de productos con cálculo automático de precio unitario
+- Ingresa total y cantidad → el sistema calcula precio por unidad automáticamente
+- Soporte para múltiples unidades de medida (litros, mililitros, gramos, kilogramos)
 - Compras con múltiples productos
-- Registro automático de entradas al inventario
-- Editar, agregar y eliminar productos
-- Crear nuevos productos desde el módulo de compras
+- Registro automático de entradas al inventario con costo promedio ponderado
+- Historial completo de compras
 
-### 2. **Módulo de Ventas**
-- Gestión de presentaciones y envases (1 litro, medio litro, etc.)
-- Precio de venta en colones por presentación
-- **Cálculo automático en tiempo real** del margen de ganancia:
+### 2. **Módulo de Ventas y Presentaciones**
+- Gestión de presentaciones y envases (1 litro, 500ml, 250ml, etc.)
+- **Conversión automática de unidades** (mililitros ↔ litros, gramos ↔ kilogramos)
+- **Calculadora de precio con margen objetivo**:
+  - Define tu margen deseado (ej: 30%)
+  - Sistema calcula precio automáticamente
+  - Incluye costo de producto + envase + gastos utilitarios (opcional)
+- **Cálculo de gastos utilitarios prorrateados**:
+  - Distribuye luz, agua, alquiler entre litros de inventario
+  - Checkbox para incluir/excluir en el precio
+- **Cálculo en tiempo real del margen de ganancia**:
   - Porcentaje de margen
-  - Monto en colones
-  - Monto en dólares
-- **Gráfico interactivo** mostrando margen mientras se edita el precio
+  - Monto en colones y dólares
 - Registro de salidas automáticas del inventario
-- Conversión de moneda USD ↔ CRC con API gratuita
+- Conversión de moneda USD ↔ CRC con API en tiempo real
 
 ### 3. **Módulo de Gastos**
-- Registro de gastos únicos y utilitarios (agua, luz, internet, etc.)
+- Registro de gastos únicos y utilitarios (agua, luz, internet, alquiler, etc.)
 - Periodicidad para gastos utilitarios (semanal, quincenal, mensual, anual)
-- Distribución proporcional de gastos utilitarios en el costo de productos
-- Cálculo de margen real considerando:
-  - Costo del producto
-  - Costo del envase
-  - Gastos utilitarios distribuidos
+- **Distribución inteligente de gastos utilitarios**:
+  - Calcula costo por litro de overhead
+  - Se prorratea automáticamente en presentaciones
+- Seguimiento de gastos por categoría y tipo
 
 ### 4. **Módulo de Inventario**
-- Seguimiento en tiempo real del stock
-- Registro de entradas (compras, ajustes) y salidas (ventas, bajas)
-- Editar/agregar/remover productos
-- Alertas de stock bajo
+- Seguimiento en tiempo real del stock con costo promedio ponderado
+- Registro automático de movimientos (entradas y salidas)
+- Soporte para múltiples unidades de medida
 - Visualización de valor total del inventario
 - Estados de stock: Bajo, Medio, Óptimo
+- Alertas de productos sin costo registrado
 
 ### 5. **Módulo de Reportes**
-- Informes descargables en PDF de:
-  - Compras
-  - Ventas
-  - Gastos
-  - Márgenes de ganancia
-  - Inventario actual
-- Gráficos en vivo por producto
+- Informes descargables en **PDF** de:
+  - Ventas por período
+  - Compras históricas
+  - Gastos por categoría
+  - Inventario actual con valoración
+- Filtros por fecha y tipo de reporte
+- Formato profesional con tablas y totales
 - Filtros por producto, fechas y presentaciones
 - Exportación a PDF con diseño profesional
 
@@ -115,25 +119,133 @@ Abre [http://localhost:3000](http://localhost:3000) en tu navegador.
 
 ## 🚢 Despliegue en Vercel
 
-### Opción 1: Desde GitHub (Recomendado)
+### Preparación Previa
 
-1. Sube tu código a GitHub
-2. Ve a [Vercel](https://vercel.com)
-3. Clic en "New Project"
-4. Importa tu repositorio
-5. Agrega las variables de entorno:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `NEXT_PUBLIC_EXCHANGE_API_URL`
-6. Clic en "Deploy"
+Antes de desplegar, asegúrate de:
 
-### Opción 2: Desde CLI
+1. **Tener tu base de datos Supabase configurada**:
+   - Ejecuta el archivo `supabase-schema.sql` en tu proyecto Supabase
+   - Verifica que todas las tablas, triggers y políticas RLS estén creadas
 
-```bash
-npm install -g vercel
-vercel login
-vercel
-```
+2. **Variables de entorno necesarias**:
+   - `NEXT_PUBLIC_SUPABASE_URL` - URL de tu proyecto Supabase
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Clave anónima (anon/public key)
+   - `NEXT_PUBLIC_EXCHANGE_API_URL` - API de conversión de moneda (opcional)
+
+### Opción 1: Despliegue desde GitHub (Recomendado)
+
+1. **Sube tu código a GitHub**:
+   ```bash
+   git add .
+   git commit -m "Preparado para despliegue"
+   git push origin main
+   ```
+
+2. **Conecta con Vercel**:
+   - Ve a [vercel.com](https://vercel.com) y crea una cuenta (puedes usar GitHub)
+   - Clic en **"Add New Project"**
+   - Selecciona **"Import Git Repository"**
+   - Conecta tu repositorio de GitHub
+   - Selecciona el proyecto **RicCommerce**
+
+3. **Configura las variables de entorno**:
+   - En la página de configuración, ve a **"Environment Variables"**
+   - Agrega las siguientes variables:
+     ```
+     NEXT_PUBLIC_SUPABASE_URL = tu_url_de_supabase
+     NEXT_PUBLIC_SUPABASE_ANON_KEY = tu_clave_anonima
+     NEXT_PUBLIC_EXCHANGE_API_URL = https://api.exchangerate-api.com/v4/latest/USD
+     ```
+   - **Importante**: Asegúrate de marcar las variables como disponibles en **Production**, **Preview** y **Development**
+
+4. **Despliega**:
+   - Clic en **"Deploy"**
+   - Vercel automáticamente:
+     - Instalará dependencias (`npm install`)
+     - Ejecutará el build (`npm run build`)
+     - Desplegará la aplicación
+   - Proceso toma 2-3 minutos
+
+5. **Verifica el despliegue**:
+   - Una vez completado, obtendrás una URL tipo: `https://riccommerce.vercel.app`
+   - Abre la URL y verifica que todo funcione correctamente
+
+### Opción 2: Despliegue desde CLI de Vercel
+
+1. **Instala Vercel CLI**:
+   ```bash
+   npm install -g vercel
+   ```
+
+2. **Login en Vercel**:
+   ```bash
+   vercel login
+   ```
+
+3. **Despliega el proyecto**:
+   ```bash
+   vercel
+   ```
+
+4. **Configura variables de entorno** (si no están en `.env.production`):
+   ```bash
+   vercel env add NEXT_PUBLIC_SUPABASE_URL
+   vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY
+   vercel env add NEXT_PUBLIC_EXCHANGE_API_URL
+   ```
+
+5. **Despliega a producción**:
+   ```bash
+   vercel --prod
+   ```
+
+### Post-Despliegue
+
+1. **Configura dominio personalizado** (opcional):
+   - En el dashboard de Vercel, ve a **Settings** > **Domains**
+   - Agrega tu dominio personalizado
+   - Sigue las instrucciones para configurar DNS
+
+2. **Actualiza las URLs permitidas en Supabase**:
+   - Ve a tu proyecto en Supabase
+   - **Authentication** > **URL Configuration**
+   - Agrega tu URL de Vercel a:
+     - **Site URL**: `https://tu-proyecto.vercel.app`
+     - **Redirect URLs**: `https://tu-proyecto.vercel.app/**`
+
+3. **Prueba todas las funcionalidades**:
+   - Registro e inicio de sesión
+   - Crear productos y compras
+   - Crear presentaciones
+   - Registrar ventas
+   - Verificar cálculos de márgenes
+   - Generar reportes PDF
+
+### Actualizaciones Futuras
+
+Cada vez que hagas `git push` a tu rama principal, Vercel automáticamente:
+- Detectará los cambios
+- Ejecutará un nuevo build
+- Desplegará la nueva versión
+- Mantendrá la URL anterior activa hasta que el nuevo deploy esté listo
+
+### Troubleshooting
+
+**Error: "Module not found"**
+- Verifica que todas las dependencias estén en `package.json`
+- Ejecuta `npm install` localmente y vuelve a hacer push
+
+**Error: "Environment variable not found"**
+- Verifica que agregaste todas las variables en Vercel
+- Recarga el proyecto en Vercel después de agregar variables
+
+**Error de Supabase: "Invalid API key"**
+- Verifica que copiaste correctamente la clave anónima
+- Asegúrate de usar `NEXT_PUBLIC_` como prefijo
+
+**Error: "Failed to compile"**
+- Revisa los errores en el log de build de Vercel
+- Ejecuta `npm run build` localmente para detectar errores
 
 ## 📘 Guía de Uso
 
@@ -143,7 +255,7 @@ vercel
    - Accede a la página de login
    - Clic en "Registrarse"
    - Completa nombre, email y contraseña
-   - Verifica tu email (si está habilitada la verificación)
+   - Verifica tu email (si está habilitada la verificación en Supabase)
 
 2. **Configurar Sistema**:
    - Ve a **Configuración**
