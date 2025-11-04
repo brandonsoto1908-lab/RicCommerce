@@ -47,8 +47,8 @@ BEGIN
       v_user_id,
       v_producto_id,
       '434ml Botella',
-      434,
-      'mililitros',
+      0.434,
+      'litros',
       0.50, -- Costo envase pequeño
       ROUND((((0.434 * v_costo_promedio_usd) + 0.50) * v_tasa_cambio) * (1 + (v_margen_objetivo / 100)), 2),
       true
@@ -257,8 +257,8 @@ BEGIN
       v_user_id,
       v_producto_id,
       '750ml',
-      750,
-      'mililitros',
+      0.750,
+      'litros',
       0.50,
       ROUND((((0.750 * v_costo_promedio_usd) + 0.50) * v_tasa_cambio) * (1 + (v_margen_objetivo / 100)), 2),
       true
@@ -313,8 +313,8 @@ BEGIN
       v_user_id,
       v_producto_id,
       '680 gramos',
-      680,
-      'gramos',
+      0.680,
+      'kilogramos',
       1.50,
       ROUND((((0.680 * v_costo_promedio_usd) + 1.50) * v_tasa_cambio) * (1 + (v_margen_objetivo / 100)), 2),
       true

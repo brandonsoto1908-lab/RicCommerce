@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase, Producto, Presentacion } from '@/lib/supabase'
+import { supabase, Producto, Presentacion, PrecioCompetencia } from '@/lib/supabase'
 import { Plus, Trash2, Save, X } from 'lucide-react'
 import { formatCurrency, calcularMargen, formatDateShort } from '@/lib/utils'
 import { getCombinedExchangeRate } from '@/lib/exchangeRate'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts'
+import { calcularPrecioPorUnidad, compararConCompetencia, normalizarCantidad } from '@/lib/comparacion'
 
 interface ProductoVenta {
   presentacion_id: string
@@ -24,6 +25,7 @@ export default function VentasPage() {
   const [showModal, setShowModal] = useState(false)
   const [showPresentacionModal, setShowPresentacionModal] = useState(false)
   const [tasaCambio, setTasaCambio] = useState(520)
+  const [preciosCompetencia, setPreciosCompetencia] = useState<PrecioCompetencia[]>([])
   
   // Estado para nueva venta
   const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0])
@@ -124,6 +126,15 @@ export default function VentasPage() {
         .order('nombre')
 
       if (productosData) setProductos(productosData)
+
+      // Cargar precios de competencia
+      const { data: competenciaData } = await supabase
+        .from('precios_competencia')
+        .select('*')
+        .eq('activo', true)
+        .order('producto')
+
+      if (competenciaData) setPreciosCompetencia(competenciaData)
 
       // Cargar gastos utilitarios activos (mensuales)
       const { data: gastosData } = await supabase
@@ -310,6 +321,207 @@ export default function VentasPage() {
       ...nuevaPresentacion,
       precio_venta_colones: Math.ceil(precioVentaColones / 5) * 5 // Redondear a múltiplo de 5
     })
+  }
+
+  const calcularPrecioCompetitivo = async () => {
+    const producto = productos.find((p: Producto) => p.id === nuevaPresentacion.producto_id)
+    if (!producto || !nuevaPresentacion.cantidad) {
+      alert('Por favor selecciona un producto e ingresa una cantidad')
+      return
+    }
+
+    // Filtrar precios de competencia de la misma categoría
+    const competenciaCategoria = preciosCompetencia.filter(c => c.categoria === producto.categoria)
+    
+    if (competenciaCategoria.length === 0) {
+      alert(`No hay precios de competencia registrados para la categoría "${producto.categoria}".\n\nAgrega precios de Walmart o PriceSmart en el módulo de Competencia primero.`)
+      return
+    }
+
+    // Calcular precio promedio de competencia normalizado
+    const preciosNormalizados = competenciaCategoria.map(c => {
+      return calcularPrecioPorUnidad(c.precio_usd, c.cantidad, c.unidad_medida)
+    })
+
+    const promedioCompetencia = preciosNormalizados.reduce((sum, p) => sum + p, 0) / preciosNormalizados.length
+
+    // Calcular cuánto costaría tu producto al precio promedio de competencia
+    const tuPrecioUSD = calcularPrecioPorUnidad(
+      promedioCompetencia * nuevaPresentacion.cantidad, // Precio total si vendieras al promedio
+      nuevaPresentacion.cantidad,
+      nuevaPresentacion.unidad
+    ) * nuevaPresentacion.cantidad // Volver a multiplicar para obtener precio total
+
+    // Aplicar descuento del 5-10% para ser más competitivo
+    const factorCompetitivo = 0.92 // 8% más barato que el promedio
+    const precioCompetitivoUSD = tuPrecioUSD * factorCompetitivo
+    const precioCompetitivoColones = precioCompetitivoUSD * tasaCambio
+
+    // Verificar que el precio dé margen positivo
+    const { data: inventarioData } = await supabase
+      .from('inventario')
+      .select('costo_promedio_usd')
+      .eq('producto_id', nuevaPresentacion.producto_id)
+      .single()
+
+    const costoProductoUSD = inventarioData?.costo_promedio_usd || 0
+    const cantidadEnUnidadBase = convertirUnidades(
+      nuevaPresentacion.cantidad,
+      nuevaPresentacion.unidad,
+      producto.unidad_medida
+    )
+    
+    const costoTotalUSD = (costoProductoUSD * cantidadEnUnidadBase) + (nuevaPresentacion.costo_envase || 0)
+    const margenResultante = ((precioCompetitivoUSD - costoTotalUSD) / costoTotalUSD) * 100
+
+    if (margenResultante < 10) {
+      const confirm = window.confirm(
+        `⚠️ ADVERTENCIA: El precio competitivo calculado da un margen de solo ${margenResultante.toFixed(1)}%.\n\n` +
+        `Precio competitivo: ${formatCurrency(precioCompetitivoColones, 'CRC')}\n` +
+        `Margen: ${margenResultante.toFixed(1)}%\n\n` +
+        `Esto es ${(100 - factorCompetitivo * 100).toFixed(0)}% más barato que el promedio de competencia (${formatCurrency(promedioCompetencia, 'USD')}/unidad).\n\n` +
+        `¿Deseas usar este precio de todos modos?`
+      )
+      if (!confirm) return
+    }
+
+    setNuevaPresentacion({
+      ...nuevaPresentacion,
+      precio_venta_colones: Math.ceil(precioCompetitivoColones / 5) * 5 // Redondear a múltiplo de 5
+    })
+
+    alert(
+      `✅ Precio competitivo calculado:\n\n` +
+      `Promedio competencia: ${formatCurrency(promedioCompetencia, 'USD')}/unidad\n` +
+      `Tu precio: ${formatCurrency(precioCompetitivoUSD / nuevaPresentacion.cantidad, 'USD')}/unidad\n` +
+      `Diferencia: -${(100 - factorCompetitivo * 100).toFixed(0)}% (más barato)\n\n` +
+      `Precio total: ${formatCurrency(Math.ceil(precioCompetitivoColones / 5) * 5, 'CRC')}\n` +
+      `Margen esperado: ${margenResultante.toFixed(1)}%`
+    )
+  }
+
+  const calcularPrecioCantidadRecomendada = async () => {
+    const producto = productos.find((p: Producto) => p.id === nuevaPresentacion.producto_id)
+    if (!producto) {
+      alert('Por favor selecciona un producto')
+      return
+    }
+
+    // Buscar TODOS los productos de competencia que contengan palabras clave del producto
+    const palabrasClave = producto.nombre.toLowerCase().split(' ').filter(p => p.length > 3)
+    const competenciaRelacionada = preciosCompetencia.filter(c => {
+      const nombreComp = c.producto.toLowerCase()
+      return palabrasClave.some(palabra => nombreComp.includes(palabra)) ||
+             nombreComp.includes(producto.nombre.toLowerCase()) ||
+             c.categoria === producto.categoria
+    })
+
+    if (competenciaRelacionada.length === 0) {
+      alert(`No hay productos de competencia relacionados con "${producto.nombre}".\n\nAgrega productos similares en el módulo de Competencia.`)
+      return
+    }
+
+    // Calcular precio promedio PONDERADO por cantidad vendida
+    let sumaTotal = 0
+    let sumaPesos = 0
+    
+    competenciaRelacionada.forEach(c => {
+      const precioPorUnidad = calcularPrecioPorUnidad(c.precio_usd, c.cantidad, c.unidad_medida)
+      const peso = c.cantidad // Las cantidades más grandes tienen más peso
+      sumaTotal += precioPorUnidad * peso
+      sumaPesos += peso
+    })
+
+    const promedioCompetenciaPonderado = sumaTotal / sumaPesos
+
+    // Encontrar las cantidades más comunes en la competencia (para recomendar tamaño)
+    const cantidadesNormalizadas = competenciaRelacionada.map(c => {
+      const { cantidad: cantNorm, unidadNormalizada } = normalizarCantidad(c.cantidad, c.unidad_medida)
+      return { cantidad: cantNorm, unidad: unidadNormalizada, distribuidor: c.distribuidor }
+    }).sort((a, b) => b.cantidad - a.cantidad)
+
+    // Recomendar la cantidad más popular (mediana o moda)
+    const cantidadRecomendada = cantidadesNormalizadas.length > 0 
+      ? cantidadesNormalizadas[Math.floor(cantidadesNormalizadas.length / 2)].cantidad
+      : 1
+
+    const unidadRecomendada = cantidadesNormalizadas.length > 0
+      ? cantidadesNormalizadas[0].unidad
+      : 'litros'
+
+    // Obtener costo del inventario
+    const { data: inventarioData } = await supabase
+      .from('inventario')
+      .select('costo_promedio_usd')
+      .eq('producto_id', nuevaPresentacion.producto_id)
+      .single()
+
+    const costoProductoUSD = inventarioData?.costo_promedio_usd || 0
+
+    if (costoProductoUSD === 0) {
+      alert(`⚠️ ERROR: El producto no tiene costo registrado.\n\nRegistra una compra primero en el módulo de COMPRAS.`)
+      return
+    }
+
+    // Calcular costo de la presentación recomendada
+    const cantidadEnUnidadBase = convertirUnidades(
+      cantidadRecomendada,
+      unidadRecomendada,
+      producto.unidad_medida
+    )
+
+    // Estimar costo de envase según tamaño
+    const costoEnvaseRecomendado = cantidadRecomendada < 0.5 ? 0.50 :
+                                   cantidadRecomendada < 2 ? 1.00 :
+                                   cantidadRecomendada < 5 ? 2.00 : 3.00
+
+    const costoTotalUSD = (costoProductoUSD * cantidadEnUnidadBase) + costoEnvaseRecomendado
+
+    // Calcular precio competitivo (5% más barato que el promedio ponderado)
+    const factorCompetitivo = 0.95
+    const precioRecomendadoUSD = promedioCompetenciaPonderado * cantidadRecomendada * factorCompetitivo
+    const precioRecomendadoColones = precioRecomendadoUSD * tasaCambio
+
+    // Calcular margen
+    const margenResultante = ((precioRecomendadoUSD - costoTotalUSD) / costoTotalUSD) * 100
+
+    // Validar que sea rentable
+    if (margenResultante < 15) {
+      alert(
+        `⚠️ ADVERTENCIA: El margen es muy bajo (${margenResultante.toFixed(1)}%)\n\n` +
+        `La cantidad recomendada no es rentable con los costos actuales.\n` +
+        `Considera aumentar el precio o reducir costos.`
+      )
+      return
+    }
+
+    // Aplicar la recomendación
+    setNuevaPresentacion({
+      ...nuevaPresentacion,
+      cantidad: cantidadRecomendada,
+      unidad: unidadRecomendada,
+      costo_envase: costoEnvaseRecomendado,
+      precio_venta_colones: Math.ceil(precioRecomendadoColones / 5) * 5,
+      nombre: `${cantidadRecomendada} ${unidadRecomendada === 'litros' ? 'L' : unidadRecomendada === 'kilogramos' ? 'kg' : unidadRecomendada}`
+    })
+
+    // Mostrar resumen detallado
+    const resumen = `🎯 RECOMENDACIÓN BASADA EN COMPETENCIA\n\n` +
+      `📊 Análisis de ${competenciaRelacionada.length} productos similares:\n` +
+      competenciaRelacionada.slice(0, 5).map(c => 
+        `  • ${c.distribuidor}: ${c.cantidad} ${c.unidad_medida} a $${c.precio_usd.toFixed(2)}`
+      ).join('\n') +
+      (competenciaRelacionada.length > 5 ? `\n  ... y ${competenciaRelacionada.length - 5} más` : '') +
+      `\n\n📦 CANTIDAD RECOMENDADA: ${cantidadRecomendada} ${unidadRecomendada}\n` +
+      `💰 PRECIO RECOMENDADO: ${formatCurrency(Math.ceil(precioRecomendadoColones / 5) * 5, 'CRC')}\n` +
+      `📈 MARGEN ESPERADO: ${margenResultante.toFixed(1)}%\n\n` +
+      `Comparación:\n` +
+      `  • Promedio competencia: $${promedioCompetenciaPonderado.toFixed(2)}/${unidadRecomendada}\n` +
+      `  • Tu precio: $${(precioRecomendadoUSD / cantidadRecomendada).toFixed(2)}/${unidadRecomendada}\n` +
+      `  • Diferencia: -${(100 - factorCompetitivo * 100).toFixed(0)}% más barato\n\n` +
+      `✅ Estos valores se han aplicado automáticamente.`
+
+    alert(resumen)
   }
 
   const agregarProductoVenta = () => {
@@ -634,13 +846,66 @@ export default function VentasPage() {
     )
   }
 
-  // Datos para el gráfico de margen
-  const datosGrafico = [
-    { precio: 0, margen: 0 },
-    { precio: nuevaPresentacion.precio_venta_colones * 0.5, margen: calcularMargen((productos.find((p: Producto) => p.id === nuevaPresentacion.producto_id) ? 1 : 0), nuevaPresentacion.precio_venta_colones * 0.5, tasaCambio).margenPorcentaje },
-    { precio: nuevaPresentacion.precio_venta_colones, margen: margenPreview.margenPorcentaje },
-    { precio: nuevaPresentacion.precio_venta_colones * 1.5, margen: calcularMargen((productos.find((p: Producto) => p.id === nuevaPresentacion.producto_id) ? 1 : 0), nuevaPresentacion.precio_venta_colones * 1.5, tasaCambio).margenPorcentaje },
-  ]
+  // Calcular datos para gráfico comparativo
+  const productoSeleccionado = productos.find((p: Producto) => p.id === nuevaPresentacion.producto_id)
+  const preciosCompetenciaProducto = productoSeleccionado 
+    ? preciosCompetencia.filter(c => c.categoria === productoSeleccionado.categoria)
+    : []
+
+  // Generar puntos del gráfico para diferentes precios
+  const generarDatosGrafico = () => {
+    if (!productoSeleccionado || !nuevaPresentacion.cantidad) {
+      return []
+    }
+
+    const precioBase = nuevaPresentacion.precio_venta_colones || 1000
+    const puntos = []
+    
+    // Generar 20 puntos desde 50% hasta 150% del precio actual
+    for (let i = 0; i <= 20; i++) {
+      const factor = 0.5 + (i * 0.05) // 0.5 a 1.5
+      const precioColones = precioBase * factor
+      const precioUSD = precioColones / tasaCambio
+      
+      // Calcular tu precio por unidad normalizada
+      const tuPrecioPorUnidad = calcularPrecioPorUnidad(
+        precioUSD,
+        nuevaPresentacion.cantidad,
+        nuevaPresentacion.unidad
+      )
+
+      // Calcular precios de competencia
+      let walmartPrecio = null
+      let pricesmartPrecio = null
+
+      if (preciosCompetenciaProducto.length > 0) {
+        const comparacion = compararConCompetencia(
+          precioUSD,
+          nuevaPresentacion.cantidad,
+          nuevaPresentacion.unidad,
+          preciosCompetenciaProducto
+        )
+        walmartPrecio = comparacion?.walmart || null
+        pricesmartPrecio = comparacion?.pricesmart || null
+      }
+
+      puntos.push({
+        precioColones: Math.round(precioColones),
+        tuPrecio: parseFloat(tuPrecioPorUnidad.toFixed(2)),
+        walmart: walmartPrecio,
+        pricesmart: pricesmartPrecio,
+        margen: margenPreview.margenPorcentaje,
+        esPrecioActual: i === 10 // Marcar el punto del medio (100%) como precio actual
+      })
+    }
+
+    return puntos
+  }
+
+  const datosGrafico = generarDatosGrafico()
+
+  // Encontrar el precio actual en el gráfico
+  const precioActualIndex = Math.floor(datosGrafico.length / 2)
 
   return (
     <div>
@@ -1133,9 +1398,55 @@ export default function VentasPage() {
                     step="0.01"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Puedes editarlo manualmente o usar el botón "Calcular Precio"
+                    Puedes editarlo manualmente o usar los botones de cálculo
                   </p>
                 </div>
+
+                {/* Botón para hacer precio competitivo */}
+                {productoSeleccionado && preciosCompetencia.length > 0 && (
+                  <div className="space-y-3">
+                    {/* Precio competitivo con cantidad actual */}
+                    {preciosCompetenciaProducto.length > 0 && nuevaPresentacion.cantidad > 0 && (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                        <button
+                          onClick={calcularPrecioCompetitivo}
+                          className="btn bg-green-600 hover:bg-green-700 text-white w-full flex items-center justify-center gap-2"
+                          disabled={!nuevaPresentacion.producto_id || !nuevaPresentacion.cantidad}
+                          title="Calcular precio competitivo basado en Walmart y PriceSmart"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M12 2v20M2 12h20"/>
+                            <circle cx="12" cy="12" r="3"/>
+                          </svg>
+                          Hacer Precio Competitivo
+                        </button>
+                        <p className="text-xs text-green-700 mt-2 text-center">
+                          🎯 Calcula precio ~8% más barato que competencia (cantidad actual)
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Precio Y cantidad recomendada */}
+                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                      <button
+                        onClick={calcularPrecioCantidadRecomendada}
+                        className="btn bg-purple-600 hover:bg-purple-700 text-white w-full flex items-center justify-center gap-2"
+                        disabled={!nuevaPresentacion.producto_id}
+                        title="Recomienda la mejor cantidad y precio según análisis de competencia"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                          <polyline points="7 10 12 15 17 10"/>
+                          <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        Precio y Cantidad Recomendada
+                      </button>
+                      <p className="text-xs text-purple-700 mt-2 text-center">
+                        ⚡ Analiza TODOS los productos similares y recomienda el mejor tamaño
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-4">
@@ -1165,19 +1476,120 @@ export default function VentasPage() {
                       </span>
                     </div>
                   </div>
+
+                  {/* Indicador de competitividad */}
+                  {productoSeleccionado && preciosCompetenciaProducto.length > 0 && nuevaPresentacion.precio_venta_colones > 0 && (
+                    <div className="mt-4 pt-4 border-t border-primary-200">
+                      {(() => {
+                        const precioUSD = nuevaPresentacion.precio_venta_colones / tasaCambio
+                        const comparacion = compararConCompetencia(
+                          precioUSD,
+                          nuevaPresentacion.cantidad,
+                          nuevaPresentacion.unidad,
+                          preciosCompetenciaProducto
+                        )
+                        
+                        if (!comparacion) return null
+
+                        const esCompetitivo = comparacion.esCompetitivo
+                        const diferencia = comparacion.diferenciaPorcentaje
+
+                        return (
+                          <div className={`p-3 rounded-lg ${esCompetitivo ? 'bg-green-100' : 'bg-yellow-100'}`}>
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className={`text-lg font-bold ${esCompetitivo ? 'text-green-700' : 'text-yellow-700'}`}>
+                                {esCompetitivo ? '✓ Competitivo' : '⚠ Por encima'}
+                              </span>
+                            </div>
+                            <p className={`text-sm ${esCompetitivo ? 'text-green-700' : 'text-yellow-700'}`}>
+                              {diferencia > 0 
+                                ? `+${diferencia.toFixed(1)}% más caro que competencia` 
+                                : `${diferencia.toFixed(1)}% más barato que competencia`}
+                            </p>
+                            <p className="text-xs mt-1 opacity-75">
+                              Promedio competencia: ${comparacion.promedioCompetencia.toFixed(2)}/unidad
+                            </p>
+                          </div>
+                        )
+                      })()}
+                    </div>
+                  )}
                 </div>
 
                 <div className="card">
-                  <h3 className="text-sm font-semibold mb-2">Gráfico de Margen</h3>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <LineChart data={datosGrafico}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="precio" label={{ value: 'Precio (₡)', position: 'insideBottom', offset: -5 }} />
-                      <YAxis label={{ value: 'Margen %', angle: -90, position: 'insideLeft' }} />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="margen" stroke="#0ea5e9" strokeWidth={2} />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <h3 className="text-sm font-semibold mb-3">Comparación con Competencia</h3>
+                  {preciosCompetenciaProducto.length > 0 ? (
+                    <>
+                      <ResponsiveContainer width="100%" height={250}>
+                        <LineChart data={datosGrafico}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis 
+                            dataKey="precioColones" 
+                            label={{ value: 'Precio (₡)', position: 'insideBottom', offset: -5 }} 
+                            tickFormatter={(value) => `₡${value}`}
+                          />
+                          <YAxis label={{ value: 'Precio por Litro/Kg (USD)', angle: -90, position: 'insideLeft' }} />
+                          <Tooltip 
+                            formatter={(value: any, name: string) => {
+                              if (name === 'tuPrecio') return [`$${value}/unidad`, 'Tu Precio']
+                              if (name === 'walmart') return [`$${value}/unidad`, 'Walmart']
+                              if (name === 'pricesmart') return [`$${value}/unidad`, 'PriceSmart']
+                              return [value, name]
+                            }}
+                            labelFormatter={(label) => `Precio Total: ₡${label}`}
+                          />
+                          <Legend />
+                          
+                          {/* Línea de referencia en el precio actual */}
+                          {nuevaPresentacion.precio_venta_colones > 0 && (
+                            <ReferenceLine 
+                              x={Math.round(nuevaPresentacion.precio_venta_colones)} 
+                              stroke="#0ea5e9" 
+                              strokeDasharray="3 3"
+                              label={{ value: 'Precio Actual', position: 'top' }}
+                            />
+                          )}
+                          
+                          <Line 
+                            type="monotone" 
+                            dataKey="tuPrecio" 
+                            stroke="#0ea5e9" 
+                            strokeWidth={3} 
+                            name="Tu Precio"
+                            dot={false}
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="walmart" 
+                            stroke="#ef4444" 
+                            strokeWidth={2} 
+                            name="Walmart"
+                            dot={false}
+                            strokeDasharray="5 5"
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="pricesmart" 
+                            stroke="#22c55e" 
+                            strokeWidth={2} 
+                            name="PriceSmart"
+                            dot={false}
+                            strokeDasharray="5 5"
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                      <div className="mt-3 text-xs text-gray-600 space-y-1">
+                        <p>• <span className="text-blue-600 font-semibold">Azul:</span> Tu precio por litro/kg según el precio total</p>
+                        <p>• <span className="text-red-600 font-semibold">Rojo:</span> Precio promedio de Walmart</p>
+                        <p>• <span className="text-green-600 font-semibold">Verde:</span> Precio promedio de PriceSmart</p>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      <p>No hay precios de competencia para comparar</p>
+                      <p className="text-xs mt-2">Agrega productos de la misma categoría en el módulo de Competencia</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

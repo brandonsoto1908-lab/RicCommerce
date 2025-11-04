@@ -102,11 +102,10 @@ export default function ComparacionPage() {
     if (!presentaciones.length) return []
 
     return presentaciones.map(pres => {
-      // Calcular precio por litro/kg de tu producto
-      const costoProductoUSD = inventario?.costo_promedio_usd || 0
-      const costoEnvaseUSD = pres.costo_envase || 0
-      const costoTotalUSD = (pres.cantidad * costoProductoUSD) + costoEnvaseUSD
-      const tuPrecioPorUnidad = calcularPrecioPorUnidad(costoTotalUSD, pres.cantidad, pres.unidad)
+      // Usar el precio de venta (convertido de colones a USD)
+      const TASA_CAMBIO = 540
+      const precioVentaUSD = (pres.precio_venta_colones || 0) / TASA_CAMBIO
+      const tuPrecioPorUnidad = calcularPrecioPorUnidad(precioVentaUSD, pres.cantidad, pres.unidad)
 
       // Obtener precios de competencia de la misma categoría
       const competenciaSimilar = preciosCompetencia.filter(
@@ -114,7 +113,7 @@ export default function ComparacionPage() {
       )
 
       const comparacion = compararConCompetencia(
-        costoTotalUSD,
+        precioVentaUSD,
         pres.cantidad,
         pres.unidad,
         competenciaSimilar
