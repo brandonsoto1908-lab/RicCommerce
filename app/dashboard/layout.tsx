@@ -13,7 +13,8 @@ import {
   Menu,
   X,
   BarChart3,
-  Settings
+  Settings,
+  Target
 } from 'lucide-react'
 
 export default function DashboardLayout({
@@ -90,6 +91,7 @@ export default function DashboardLayout({
     { icon: DollarSign, label: 'Ventas', href: '/dashboard/ventas' },
     { icon: TrendingUp, label: 'Gastos', href: '/dashboard/gastos' },
     { icon: Package, label: 'Inventario', href: '/dashboard/inventario' },
+    { icon: Target, label: 'Competencia', href: '/dashboard/competencia' },
     { icon: BarChart3, label: 'Reportes', href: '/dashboard/reportes' },
     { icon: Settings, label: 'Configuración', href: '/dashboard/configuracion' },
   ]

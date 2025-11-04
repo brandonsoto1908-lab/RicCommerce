@@ -12,6 +12,7 @@ export interface Producto {
   marca: string
   descripcion?: string
   unidad_medida: string
+  categoria?: string
   activo: boolean
   created_at: string
   updated_at: string
@@ -93,6 +94,24 @@ export interface Inventario {
   producto_id: string
   cantidad_disponible: number
   costo_promedio_usd: number
+  updated_at: string
+}
+
+export interface PrecioCompetencia {
+  id: string
+  usuario_id: string
+  marca: string
+  producto: string
+  precio_crc: number
+  precio_usd: number
+  cantidad: number
+  unidad_medida: string
+  distribuidor: string
+  categoria?: string
+  notas?: string
+  activo: boolean
+  fecha_registro: string
+  created_at: string
   updated_at: string
 }
 
