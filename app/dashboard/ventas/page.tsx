@@ -65,7 +65,14 @@ export default function VentasPage() {
 
   const loadData = async () => {
     try {
-      // Cargar presentaciones con productos e inventario
+      // Obtener el usuario actual
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        console.error('Usuario no autenticado')
+        return
+      }
+
+      // Cargar presentaciones con productos
       const { data: presentacionesData, error: presentacionesError } = await supabase
         .from('presentaciones')
         .select(`
@@ -74,11 +81,7 @@ export default function VentasPage() {
             id,
             nombre,
             marca,
-            unidad_medida,
-            inventario!left (
-              cantidad_disponible,
-              costo_promedio_usd
-            )
+            unidad_medida
           )
         `)
         .eq('activo', true)
@@ -88,9 +91,29 @@ export default function VentasPage() {
         console.error('Error cargando presentaciones:', presentacionesError)
       }
       
+      // Cargar inventario para cada producto
       if (presentacionesData) {
-        console.log('✅ Presentaciones cargadas:', presentacionesData)
-        setPresentaciones(presentacionesData)
+        const presentacionesConInventario = await Promise.all(
+          presentacionesData.map(async (pres) => {
+            const { data: inventarioData } = await supabase
+              .from('inventario')
+              .select('cantidad_disponible, costo_promedio_usd')
+              .eq('producto_id', pres.producto_id)
+              .eq('usuario_id', user.id)
+              .single()
+            
+            return {
+              ...pres,
+              productos: {
+                ...pres.productos,
+                inventario: inventarioData ? [inventarioData] : []
+              }
+            }
+          })
+        )
+        
+        console.log('✅ Presentaciones cargadas con inventario:', presentacionesConInventario)
+        setPresentaciones(presentacionesConInventario)
       }
 
       // Cargar productos
@@ -480,12 +503,22 @@ export default function VentasPage() {
 
     setLoading(true)
     try {
+      // Obtener usuario actual
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('Error: Usuario no autenticado')
+        return
+      }
+
       // Extraer solo los campos que existen en la tabla presentaciones
-      const { margen_objetivo, ...presentacionData } = nuevaPresentacion
+      const { margen_objetivo, incluir_gastos_utilitarios, ...presentacionData } = nuevaPresentacion
       
       const { data, error } = await supabase
         .from('presentaciones')
-        .insert([presentacionData])
+        .insert([{
+          ...presentacionData,
+          usuario_id: user.id
+        }])
         .select()
         .single()
 
@@ -646,6 +679,93 @@ export default function VentasPage() {
           >
             Actualizar Tasa
           </button>
+        </div>
+      </div>
+
+      {/* Lista de Presentaciones Disponibles */}
+      <div className="card mb-6">
+        <h2 className="text-xl font-semibold mb-4">Presentaciones Disponibles</h2>
+        <div className="table-container">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Presentación</th>
+                <th>Cantidad</th>
+                <th>Costo Envase</th>
+                <th>Precio Venta (₡)</th>
+                <th>Margen %</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {presentaciones.map((presentacion: any) => {
+                // Calcular el margen de cada presentación
+                const producto = presentacion.productos
+                const inventario = producto?.inventario?.[0]
+                const costoPromedioUSD = inventario?.costo_promedio_usd || 0
+                
+                // Convertir la cantidad de la presentación a la unidad base del producto
+                const cantidadEnUnidadBase = convertirUnidades(
+                  presentacion.cantidad,
+                  presentacion.unidad,
+                  producto?.unidad_medida || 'unidades'
+                )
+                
+                // Calcular costo del producto en esta presentación
+                const costoProductoUSD = cantidadEnUnidadBase * costoPromedioUSD
+                const costoProductoCRC = costoProductoUSD * tasaCambio
+                const costoEnvaseUSD = presentacion.costo_envase || 0
+                const costoEnvaseCRC = costoEnvaseUSD * tasaCambio
+                const costoTotalCRC = costoProductoCRC + costoEnvaseCRC
+                
+                // Calcular margen
+                const precioVentaCRC = presentacion.precio_venta_colones || 0
+                const margenCRC = precioVentaCRC - costoTotalCRC
+                const margenPorcentaje = costoTotalCRC > 0 ? (margenCRC / costoTotalCRC) * 100 : 0
+
+                return (
+                  <tr key={presentacion.id}>
+                    <td>{producto?.nombre || 'N/A'} {producto?.marca ? `- ${producto.marca}` : ''}</td>
+                    <td className="font-semibold">{presentacion.nombre}</td>
+                    <td>{presentacion.cantidad} {presentacion.unidad}</td>
+                    <td>{formatCurrency(presentacion.costo_envase || 0, 'USD')}</td>
+                    <td className="font-bold">{formatCurrency(presentacion.precio_venta_colones || 0, 'CRC')}</td>
+                    <td>
+                      <span 
+                        className={`px-3 py-1 rounded-full text-sm font-bold ${
+                          margenPorcentaje >= 30 ? 'bg-green-100 text-green-800' :
+                          margenPorcentaje >= 15 ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
+                        }`}
+                      >
+                        {margenPorcentaje.toFixed(1)}%
+                      </span>
+                    </td>
+                    <td>
+                      <button
+                        onClick={() => {
+                          // Aquí puedes agregar función para editar presentación
+                          alert('Función de edición en desarrollo')
+                        }}
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                        title="Editar presentación"
+                      >
+                        <Save size={18} />
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+              {presentaciones.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="text-center text-gray-500 py-8">
+                    No hay presentaciones disponibles. Crea una nueva presentación para comenzar.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 

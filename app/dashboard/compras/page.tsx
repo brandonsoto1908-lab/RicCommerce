@@ -194,9 +194,19 @@ export default function ComprasPage() {
 
     setLoading(true)
     try {
+      // Obtener usuario actual
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('Error: Usuario no autenticado')
+        return
+      }
+
       const { data, error } = await supabase
         .from('productos')
-        .insert([nuevoProducto])
+        .insert([{
+          ...nuevoProducto,
+          usuario_id: user.id
+        }])
         .select()
         .single()
 

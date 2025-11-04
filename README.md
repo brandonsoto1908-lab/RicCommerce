@@ -2,6 +2,21 @@
 
 Sistema web completo para la gestión integral de productos de limpieza, desarrollado con Next.js 14, TypeScript, Supabase y Tailwind CSS.
 
+## ⚠️ MIGRACIÓN MULTI-TENANT REQUERIDA
+
+**IMPORTANTE:** Si estás actualizando desde una versión anterior, **DEBES ejecutar la migración** para convertir el sistema en multi-tenant.
+
+📖 **Lee las instrucciones completas:** `INSTRUCCIONES-MIGRACION.md`
+
+**Pasos rápidos:**
+1. Abre Supabase SQL Editor
+2. Ejecuta: `MASTER-migration-multitenant.sql`
+3. Verifica con: `verify-migration.sql`
+
+**¿Por qué migrar?** La versión anterior compartía datos entre usuarios. Esta migración asegura que cada usuario tenga sus propios productos, inventario y presentaciones completamente aislados.
+
+---
+
 ## 🚀 Características Principales
 
 ### 1. **Módulo de Compras**
@@ -11,6 +26,7 @@ Sistema web completo para la gestión integral de productos de limpieza, desarro
 - Compras con múltiples productos
 - Registro automático de entradas al inventario con costo promedio ponderado
 - Historial completo de compras
+- **✅ Multi-tenant:** Cada usuario ve solo sus productos
 
 ### 2. **Módulo de Ventas y Presentaciones**
 - Gestión de presentaciones y envases (1 litro, 500ml, 250ml, etc.)
@@ -25,8 +41,10 @@ Sistema web completo para la gestión integral de productos de limpieza, desarro
 - **Cálculo en tiempo real del margen de ganancia**:
   - Porcentaje de margen
   - Monto en colones y dólares
+- **Columna de Margen % en tabla de presentaciones**
 - Registro de salidas automáticas del inventario
 - Conversión de moneda USD ↔ CRC con API en tiempo real
+- **✅ Multi-tenant:** Cada usuario ve solo sus presentaciones
 
 ### 3. **Módulo de Gastos**
 - Registro de gastos únicos y utilitarios (agua, luz, internet, alquiler, etc.)
@@ -35,6 +53,7 @@ Sistema web completo para la gestión integral de productos de limpieza, desarro
   - Calcula costo por litro de overhead
   - Se prorratea automáticamente en presentaciones
 - Seguimiento de gastos por categoría y tipo
+- **✅ Multi-tenant:** Gastos aislados por usuario
 
 ### 4. **Módulo de Inventario**
 - Seguimiento en tiempo real del stock con costo promedio ponderado
@@ -43,6 +62,7 @@ Sistema web completo para la gestión integral de productos de limpieza, desarro
 - Visualización de valor total del inventario
 - Estados de stock: Bajo, Medio, Óptimo
 - Alertas de productos sin costo registrado
+- **✅ Multi-tenant:** Inventario independiente por usuario
 
 ### 5. **Módulo de Reportes**
 - Informes descargables en **PDF** de:
