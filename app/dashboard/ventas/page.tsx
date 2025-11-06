@@ -1583,6 +1583,71 @@ export default function VentasPage() {
                         <p>• <span className="text-red-600 font-semibold">Rojo:</span> Precio promedio de Walmart</p>
                         <p>• <span className="text-green-600 font-semibold">Verde:</span> Precio promedio de PriceSmart</p>
                       </div>
+
+                      {/* Detalles de productos de competencia */}
+                      <div className="mt-4 space-y-3">
+                        <h4 className="text-sm font-semibold text-gray-700">Productos de Competencia:</h4>
+                        
+                        {/* Walmart */}
+                        {(() => {
+                          const walmartProductos = preciosCompetenciaProducto.filter(p => p.distribuidor.toLowerCase().includes('walmart'))
+                          if (walmartProductos.length === 0) return null
+                          
+                          return (
+                            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                              <div className="flex items-center gap-2 mb-2">
+                                <div className="w-3 h-3 bg-red-600 rounded-full"></div>
+                                <span className="font-semibold text-red-900">Walmart</span>
+                              </div>
+                              <div className="space-y-1">
+                                {walmartProductos.map((prod, idx) => {
+                                  const precioPorUnidad = calcularPrecioPorUnidad(prod.precio_usd, prod.cantidad, prod.unidad_medida)
+                                  return (
+                                    <div key={idx} className="text-xs text-red-800 flex justify-between items-center">
+                                      <span className="font-medium">{prod.producto}</span>
+                                      <span className="text-right">
+                                        {prod.cantidad} {prod.unidad_medida} → 
+                                        <span className="font-bold ml-1">${precioPorUnidad.toFixed(2)}/unidad</span>
+                                        <span className="text-red-600 ml-1">({formatCurrency(prod.precio_usd, 'USD')} total)</span>
+                                      </span>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )
+                        })()}
+
+                        {/* PriceSmart */}
+                        {(() => {
+                          const pricesmartProductos = preciosCompetenciaProducto.filter(p => p.distribuidor.toLowerCase().includes('pricesmart'))
+                          if (pricesmartProductos.length === 0) return null
+                          
+                          return (
+                            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                              <div className="flex items-center gap-2 mb-2">
+                                <div className="w-3 h-3 bg-green-600 rounded-full"></div>
+                                <span className="font-semibold text-green-900">PriceSmart</span>
+                              </div>
+                              <div className="space-y-1">
+                                {pricesmartProductos.map((prod, idx) => {
+                                  const precioPorUnidad = calcularPrecioPorUnidad(prod.precio_usd, prod.cantidad, prod.unidad_medida)
+                                  return (
+                                    <div key={idx} className="text-xs text-green-800 flex justify-between items-center">
+                                      <span className="font-medium">{prod.producto}</span>
+                                      <span className="text-right">
+                                        {prod.cantidad} {prod.unidad_medida} → 
+                                        <span className="font-bold ml-1">${precioPorUnidad.toFixed(2)}/unidad</span>
+                                        <span className="text-green-600 ml-1">({formatCurrency(prod.precio_usd, 'USD')} total)</span>
+                                      </span>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )
+                        })()}
+                      </div>
                     </>
                   ) : (
                     <div className="text-center py-8 text-gray-500">
